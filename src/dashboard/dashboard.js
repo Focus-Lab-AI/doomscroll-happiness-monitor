@@ -3,7 +3,7 @@ import { EXPRESSIONS, sessionStats, smooth, moodEmoji, withMoodSource, HSE_CLASS
 import { getSettings } from '../shared/settings.js';
 import { fmtDuration, fmtTime, fmtTimeSec, fmtMood, dayKey, dayBounds, fmtDay } from '../shared/format.js';
 import { renderTimelapse, pickMime } from './timelapse.js';
-import { getCameraStatus, requestCamera, dismissCameraBanner } from '../shared/camera.js';
+import { getCameraStatus, requestCamera, dismissCameraBanner, IS_FIREFOX, CAMERA_UNBLOCK_HINT } from '../shared/camera.js';
 
 const $ = (s) => document.querySelector(s);
 const send = (msg) => chrome.runtime.sendMessage({ ...msg, target: 'background' });
@@ -729,8 +729,8 @@ async function refreshBanner() {
     const banner = $('#cameraBanner');
     banner.hidden = !st.showBanner;
     $('#cameraBannerCause').textContent = st.cause;
-    if (st.state === 'denied') $('#cameraBannerText').textContent = 'Chrome has the camera blocked for this extension. Fix it under chrome://extensions → Details → Site settings → Camera: Allow, or open Camera settings for instructions.';
-    else if (st.refused) $('#cameraBannerText').textContent = 'The capture page could not use the camera. Click Allow camera again, or set Camera: Allow under chrome://extensions → Details → Site settings.';
+    if (st.state === 'denied') $('#cameraBannerText').textContent = IS_FIREFOX ? `Firefox has the camera blocked for this extension. ${CAMERA_UNBLOCK_HINT}` : 'Chrome has the camera blocked for this extension. Fix it under chrome://extensions → Details → Site settings → Camera: Allow, or open Camera settings for instructions.';
+    else if (st.refused) $('#cameraBannerText').textContent = IS_FIREFOX ? 'The capture window could not use the camera. Click Allow camera again and tick "Remember this decision" in the prompt.' : 'The capture page could not use the camera. Click Allow camera again, or set Camera: Allow under chrome://extensions → Details → Site settings.';
   } catch (e) { console.error('[dhm] banner', e); }
 }
 async function grantCamera() {

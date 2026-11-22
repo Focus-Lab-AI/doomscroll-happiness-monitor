@@ -18,6 +18,19 @@ const state = {
 
 const send = (msg) => chrome.runtime.sendMessage({ ...msg, target: 'background' }).catch(() => {});
 
+// Firefox hosts this page in a window. Firefox only grants the camera to a visible page, so a
+// minimized window asks the background to show it again before starting the camera.
+function becomeVisible() {
+  if (!document.hidden) return Promise.resolve();
+  send({ type: 'capture-need-visible' });
+  return new Promise((resolve) => {
+    const done = () => { document.removeEventListener('visibilitychange', done); clearTimeout(t); resolve(); };
+    const t = setTimeout(done, 5000);
+    document.addEventListener('visibilitychange', done);
+  });
+}
+send({ type: 'capture-host-ready' });
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.target !== 'offscreen') return false;
   handle(msg).then((r) => sendResponse(r ?? { ok: true }), (e) => sendResponse({ error: String(e?.message || e) }));
@@ -32,7 +45,15 @@ async function handle(msg) {
         state.opts = { ...state.opts, ...msg };
         return { capturing: true };
       }
-      await startCapture(msg);
+      if (state.starting && state.startingFor === msg.sessionId) {
+        state.opts = { ...state.opts, ...msg };
+        await state.starting;
+        state.active = msg.active !== false;
+        return { capturing: state.capturing };
+      }
+      state.startingFor = msg.sessionId;
+      state.starting = startCapture(msg).finally(() => { state.starting = null; state.startingFor = null; });
+      await state.starting;
       return { capturing: state.capturing };
     case 'set-active':
       state.active = !!msg.active;
@@ -97,6 +118,7 @@ async function startCapture(msg) {
   state.active = msg.active !== false;
   try {
     await loadModels();
+    await becomeVisible();
     state.stream = await navigator.mediaDevices.getUserMedia({
       video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
       audio: false,

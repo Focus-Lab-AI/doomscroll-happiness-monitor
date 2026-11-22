@@ -1,9 +1,13 @@
-// Service worker: decides when you are "on social media", opens/closes sessions,
-// and drives the offscreen page that owns the webcam + emotion model.
+// Service worker (Chrome) / background page (Firefox): decides when you are "on social media",
+// opens/closes sessions, and drives the offscreen page that owns the webcam + emotion model.
 import { getSettings, saveSettings, hostnameFromUrl, matchTracked, normalizeDomain, DEFAULT_DOMAINS } from './shared/settings.js';
 import * as db from './shared/db.js';
 
 const OFFSCREEN_URL = 'src/offscreen/offscreen.html';
+// Firefox has neither chrome.offscreen nor chrome.action: the capture page runs in a small
+// window that minimizes itself, and the toolbar button is browserAction.
+const HAS_OFFSCREEN = !!chrome.offscreen;
+const action = chrome.action || chrome.browserAction;
 
 // ---------- state (survives service-worker restarts) ----------
 async function getState() {
@@ -57,7 +61,17 @@ async function handleMessage(msg, sender) {
       return;
     }
     case 'capture-started':
+      if (sender.tab) await hideCaptureWindow(sender.tab.windowId);
       await chrome.storage.local.remove('cameraError');
+      return;
+    case 'capture-host-ready':
+      captureHostReady?.();
+      return;
+    case 'capture-need-visible':
+      if (sender.tab) {
+        await rememberFocusedWindow();
+        await chrome.windows.update(sender.tab.windowId, { state: 'normal', focused: true }).catch(() => {});
+      }
       return;
     case 'capture-error':
       await chrome.storage.local.set({ cameraError: { name: msg.name, message: msg.message, ts: Date.now() } });
@@ -198,8 +212,10 @@ async function endSession(state, endAt) {
   await chrome.storage.session.remove('lastFrame');
   try { await sendToOffscreen({ type: 'stop-capture' }); } catch {}
   // Camera is released immediately; the page (and loaded model) is kept for a while so the
-  // next session does not pay the model load again.
-  chrome.alarms.create('close-offscreen', { delayInMinutes: 10 });
+  // next session does not pay the model load again. Firefox's capture window would have to be
+  // shown again to restart the camera anyway, so it is closed right away.
+  if (HAS_OFFSCREEN) chrome.alarms.create('close-offscreen', { delayInMinutes: 10 });
+  else await closeOffscreen();
   const s = await db.get('sessions', cur.sessionId);
   if (!s) return;
   const endedAt = Math.max(endAt, s.startedAt);
@@ -229,7 +245,24 @@ async function closeDanglingSessions() {
 }
 
 // ---------- offscreen document (camera + model) ----------
+let captureWindowId = null; // Firefox only
+let captureHostReady = null;
+let refocusWindowId = null;
+async function rememberFocusedWindow() {
+  const win = await chrome.windows.getLastFocused({ windowTypes: ['normal'] }).catch(() => null);
+  if (win?.focused) refocusWindowId = win.id;
+}
+// Minimizes the capture window and gives focus back to the browser window the user was in.
+async function hideCaptureWindow(windowId) {
+  await chrome.windows.update(windowId, { state: 'minimized' }).catch(() => {});
+  if (refocusWindowId != null) await chrome.windows.update(refocusWindowId, { focused: true }).catch(() => {});
+  refocusWindowId = null;
+}
 async function hasOffscreen() {
+  if (!HAS_OFFSCREEN) {
+    if (captureWindowId == null) return false;
+    return chrome.windows.get(captureWindowId).then(() => true, () => { captureWindowId = null; return false; });
+  }
   const contexts = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
   return contexts.length > 0;
 }
@@ -237,16 +270,26 @@ let creating = null;
 async function ensureOffscreen() {
   if (await hasOffscreen()) return;
   if (!creating) {
-    creating = chrome.offscreen.createDocument({
+    creating = (HAS_OFFSCREEN ? chrome.offscreen.createDocument({
       url: OFFSCREEN_URL,
       reasons: ['USER_MEDIA'],
       justification: 'Capture webcam frames while on social media and run a local emotion model on them.',
-    }).catch((e) => { if (!String(e).includes('single offscreen')) throw e; }).finally(() => { creating = null; });
+    }) : openCaptureWindow()).catch((e) => { if (!String(e).includes('single offscreen')) throw e; }).finally(() => { creating = null; });
   }
   await creating;
 }
+async function openCaptureWindow() {
+  const ready = new Promise((resolve) => { captureHostReady = resolve; });
+  await rememberFocusedWindow();
+  const win = await chrome.windows.create({ url: chrome.runtime.getURL(OFFSCREEN_URL), type: 'popup', width: 380, height: 260, focused: false });
+  captureWindowId = win.id;
+  await Promise.race([ready, new Promise((r) => setTimeout(r, 10000))]);
+  captureHostReady = null;
+}
 async function closeOffscreen() {
-  if (await hasOffscreen()) await chrome.offscreen.closeDocument().catch(() => {});
+  if (!(await hasOffscreen())) return;
+  if (HAS_OFFSCREEN) await chrome.offscreen.closeDocument().catch(() => {});
+  else { await chrome.windows.remove(captureWindowId).catch(() => {}); captureWindowId = null; }
 }
 function sendToOffscreen(msg) {
   return chrome.runtime.sendMessage({ ...msg, target: 'offscreen' });
@@ -300,8 +343,8 @@ async function updateBadge(state, tracked) {
   else if (cameraError && state.current) { text = '!'; color = '#d03b3b'; }
   else if (state.current && tracked) { text = 'REC'; color = '#e34948'; }
   else if (state.current) { text = '…'; color = '#898781'; }
-  await chrome.action.setBadgeText({ text });
-  await chrome.action.setBadgeBackgroundColor({ color });
+  await action.setBadgeText({ text });
+  await action.setBadgeBackgroundColor({ color });
 }
 
 // ---------- content scripts for user-added domains ----------
@@ -313,7 +356,7 @@ async function syncCustomContentScripts() {
     const existing = await chrome.scripting.getRegisteredContentScripts({ ids: ['activity-custom'] });
     if (existing.length) await chrome.scripting.unregisterContentScripts({ ids: ['activity-custom'] });
     if (matches.length) {
-      await chrome.scripting.registerContentScripts([{ id: 'activity-custom', matches, js: ['src/content/activity.js'], runAt: 'document_idle' }]);
+      await chrome.scripting.registerContentScripts([{ id: 'activity-custom', matches, js: chrome.runtime.getManifest().content_scripts[0].js, runAt: 'document_idle' }]);
     }
   } catch (e) {
     console.warn('[dhm] content script sync failed', e);
