@@ -40,6 +40,27 @@ content script (src/content) ─────┤ scroll px / clicks / keys every 
 
 Chrome 116+ is required (offscreen documents + `runtime.getContexts`).
 
+## Install in Firefox / Zen
+
+Firefox has no offscreen documents and only lets a visible page start the camera, so the Firefox
+build opens the capture page as a small window when a session starts, minimizes it once the camera
+is running, and closes it when the session ends. Everything else is the same code.
+
+1. `node scripts/build-firefox.mjs` (Node 18+, `zip` on the PATH). It writes `dist/firefox/` and
+   `dist/doomscroll-happiness-monitor-firefox.xpi` with a Firefox (MV2) manifest generated from `manifest.json`.
+2. Quick try: open `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** → pick
+   `dist/firefox/manifest.json`. Temporary add-ons are removed (with their data) when the browser quits.
+3. To keep it installed, the `.xpi` must be signed by Mozilla (free, automated, unlisted on AMO:
+   `npx web-ext sign --channel=unlisted --source-dir dist/firefox` with AMO API keys), then open the signed
+   `.xpi` in Firefox / Zen. Builds that allow unsigned add-ons (Developer Edition, Nightly, ESR with
+   `xpinstall.signatures.required` = false) can install the unsigned `.xpi` directly.
+4. Click the toolbar icon → **Settings** → **Allow camera** and tick **Remember this decision** in the prompt,
+   so the capture window can use the camera later without asking.
+
+Firefox 140+ is required. Differences from Chrome: the capture window flashes up for a moment at the start of
+each session, the model is reloaded each session, and HSEmotion runs single-threaded (Firefox extension pages are
+not cross-origin isolated).
+
 ## Dashboard
 
 - **Tiles**: time on tracked sites, average mood, time-weighted mood drift within sessions, share of frames with a face.
@@ -92,14 +113,14 @@ Thumbnails and screenshots are kept by default so other local models can be run 
 ## Layout
 
 ```
-manifest.json
+manifest.json              Chrome (MV3); scripts/build-firefox.mjs derives the Firefox manifest from it
 lib/face-api.js            @vladmandic/face-api 1.7.15 (bundled tfjs, MIT)
 lib/ort/                   onnxruntime-web 1.29 (WASM, multi-threaded via COOP/COEP in the manifest)
 lib/mediapipe/             @mediapipe/tasks-vision 1.0.1 (vision bundle + wasm)
 models/                    tiny_face_detector + face_expression weights, face_landmarker.task,
                            hsemotion/enet_b0_8_va_mtl.onnx
 docs/                      research notes (model benchmark, signal literature)
-src/background.js          service worker: session state machine, offscreen lifecycle, badge
+src/background.js          service worker / Firefox background page (background.html): session state machine, offscreen lifecycle, badge
 src/offscreen/             webcam capture + inference
 src/content/activity.js    scroll/click/key counters
 src/popup/                 status popup
@@ -120,6 +141,9 @@ npm run e2e                   # loads the extension headless with a fake webcam,
 npm run settings              # settings page: domain add/remove/reset, camera grant/dismiss flows, popup
 node unit-signals.mjs         # blink counting / signal aggregation
 npm run insights              # insights page with 30 days of synthetic data + aggregation unit tests
+npx puppeteer browsers install firefox
+npm run e2e:firefox           # builds the Firefox package, loads it in Firefox with a fake webcam, visits
+                              # YouTube, checks session, frames, screenshots, badge and capture-window lifecycle
 ```
 
 ## License
