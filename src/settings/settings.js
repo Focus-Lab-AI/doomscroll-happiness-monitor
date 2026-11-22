@@ -4,6 +4,7 @@ import { getCameraStatus, requestCamera, diagLine, undismissCameraBanner, BROWSE
 import { fmtTime, dayKey } from '../shared/format.js';
 import { moodEmoji, computeMood, dominantExpression } from '../shared/mood.js';
 import { fmtMood } from '../shared/format.js';
+import { writeBackup, backupBlob, importBackup } from '../shared/backup.js';
 
 const $ = (s) => document.querySelector(s);
 const on = (sel, ev, fn) => { const el = $(sel); if (el) el.addEventListener(ev, fn); else console.error('[dhm] missing element', sel); };
@@ -18,6 +19,9 @@ async function init() {
   on('#sSave', 'click', saveForm);
   on('#exportBtn', 'click', exportJson);
   on('#deleteAllBtn', 'click', deleteAll);
+  on('#backupBtn', 'click', exportBackup);
+  on('#importBtn', 'click', () => $('#importFile').click());
+  on('#importFile', 'change', importFromFile);
   chrome.storage.onChanged.addListener((ch, area) => {
     if (area === 'local' && ch.settings) { renderDomains(); loadForm(); }
     if (area === 'local' && (ch.cameraGranted || ch.cameraError || ch.cameraBannerDismissed)) refreshCamera();
@@ -181,6 +185,57 @@ async function exportJson() {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = `happiness-monitor-${dayKey()}.json`; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+// ---------------- full backup (images included) ----------------
+const mb = (n) => n >= 1e9 ? `${(n / 1e9).toFixed(2)} GB` : `${(n / 1e6).toFixed(1)} MB`;
+const backupStatus = (t) => { $('#backupStatus').textContent = t; };
+let backupBusy = false;
+async function withBackupLock(fn) {
+  if (backupBusy) return;
+  backupBusy = true;
+  $('#backupBtn').disabled = $('#importBtn').disabled = true;
+  try { await fn(); } catch (e) {
+    if (e?.name === 'AbortError') backupStatus('');
+    else { console.error('[dhm] backup failed', e); backupStatus(`Failed: ${e?.message || e}`); }
+  } finally {
+    backupBusy = false;
+    $('#backupBtn').disabled = $('#importBtn').disabled = false;
+  }
+}
+function exportBackup() {
+  return withBackupLock(async () => {
+    const name = `happiness-monitor-${dayKey()}.dhmbak`;
+    const progress = ({ done, total }) => backupStatus(`Exporting… ${done} / ${total} records`);
+    if (window.showSaveFilePicker) {
+      // Streams straight to disk, so a multi-GB backup never has to fit in memory.
+      const handle = await window.showSaveFilePicker({ suggestedName: name });
+      const writable = await handle.createWritable();
+      let bytes;
+      try { bytes = await writeBackup(writable, progress); } catch (e) { await writable.abort().catch(() => {}); throw e; }
+      await writable.close();
+      backupStatus(`Backup saved: ${handle.name} (${mb(bytes)}).`);
+    } else {
+      const blob = await backupBlob(progress);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = name; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+      backupStatus(`Backup ready (${mb(blob.size)}); check your downloads.`);
+    }
+  });
+}
+function importFromFile(e) {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  return withBackupLock(async () => {
+    const r = await importBackup(file, ({ done, total }) => backupStatus(`Importing… ${mb(done)} / ${mb(total)}`));
+    const bits = [`Imported ${r.sessions} sessions, ${r.frames} frames`];
+    if (r.skippedSessions) bits.push(`${r.skippedSessions} sessions already here were skipped`);
+    if (r.settingsRestored) bits.push('settings restored');
+    if (!r.complete) bits.push('WARNING: the file ended early, so the backup is incomplete');
+    backupStatus(bits.join(' · ') + '.');
+    await Promise.all([refreshDataStats(), renderDomains(), loadForm()]);
+  });
 }
 async function deleteAll() {
   if (!confirm('Delete ALL recorded data? This cannot be undone.')) return;
