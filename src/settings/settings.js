@@ -1,6 +1,6 @@
 import * as db from '../shared/db.js';
 import { getSettings, saveSettings, normalizeDomain, DEFAULT_DOMAINS } from '../shared/settings.js';
-import { getCameraStatus, requestCamera, diagLine, undismissCameraBanner } from '../shared/camera.js';
+import { getCameraStatus, requestCamera, diagLine, undismissCameraBanner, BROWSER, CAMERA_UNBLOCK_HINT } from '../shared/camera.js';
 import { fmtTime, dayKey } from '../shared/format.js';
 import { moodEmoji, computeMood, dominantExpression } from '../shared/mood.js';
 import { fmtMood } from '../shared/format.js';
@@ -70,11 +70,11 @@ async function resetDomains() {
 // ---------------- camera ----------------
 async function refreshCamera() {
   const s = await getCameraStatus();
-  $('#camStatus').textContent = s.granted ? 'Camera access: granted ✓' : s.state === 'denied' ? 'Camera access: blocked by Chrome' : 'Camera access: not granted yet';
+  $('#camStatus').textContent = s.granted ? 'Camera access: granted ✓' : s.state === 'denied' ? `Camera access: blocked by ${BROWSER}` : 'Camera access: not granted yet';
   $('#camGrant').hidden = s.granted;
   $('#camGrant').textContent = s.state === 'denied' ? 'Try again' : 'Allow camera';
   const msg = $('#camMsg');
-  if (s.state === 'denied') { msg.hidden = false; msg.textContent = 'Chrome has the camera blocked for this extension. Open chrome://settings/content/camera, remove it from "Not allowed to use your camera", then click Try again.'; }
+  if (s.state === 'denied') { msg.hidden = false; msg.textContent = `${BROWSER} has the camera blocked for this extension. ${CAMERA_UNBLOCK_HINT} Then click Try again.`; }
   else if (s.refused) { msg.hidden = false; msg.textContent = `The capture page was refused the camera (${s.cameraError.name}: ${s.cameraError.message}). Click Allow camera again.`; }
   else if (!msg.dataset.sticky) msg.hidden = true;
   const mi = s.modelInfo;
@@ -144,7 +144,7 @@ async function loadForm() {
   const { screenError } = await chrome.storage.local.get('screenError');
   $('#screenInfo').textContent = screenError
     ? `Last screenshot error (${fmtTime(screenError.ts)}): ${screenError.message}`
-    : 'Screenshots use Chrome\'s tab-capture API on tracked sites only and are stored next to the webcam frame. They can contain private content (DMs, emails); everything stays on this machine.';
+    : 'Screenshots use the browser\'s tab-capture API on tracked sites only and are stored next to the webcam frame. They can contain private content (DMs, emails); everything stays on this machine.';
 }
 async function saveForm() {
   await saveSettings({

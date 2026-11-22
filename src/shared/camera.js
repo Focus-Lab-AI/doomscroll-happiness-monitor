@@ -2,6 +2,13 @@
 // Chrome's permissions.query is not reliable for extension origins, so a successful
 // getUserMedia from an extension page is recorded as `cameraGranted` and treated as the truth.
 
+export const IS_FIREFOX = navigator.userAgent.includes('Firefox/');
+export const BROWSER = IS_FIREFOX ? 'Firefox' : 'Chrome';
+// Where to unblock the camera for this extension, written for the browser it runs in.
+export const CAMERA_UNBLOCK_HINT = IS_FIREFOX
+  ? 'Click the camera icon in the address bar of this page and remove the block, or open about:preferences#privacy → Permissions → Camera → Settings and remove the moz-extension:// entry.'
+  : 'Open chrome://settings/content/camera and remove this extension from the "Not allowed to use your camera" list.';
+
 export async function queryCameraState() {
   try { return (await navigator.permissions.query({ name: 'camera' })).state; } catch { return 'unknown'; }
 }
@@ -18,9 +25,9 @@ export async function getCameraStatus() {
   const refused = !!cameraError && /NotAllowed|Permission/i.test(`${cameraError.name} ${cameraError.message}`) && (!cameraGranted || cameraError.ts > cameraGranted);
   const granted = state !== 'denied' && !refused && (state === 'granted' || !!cameraGranted || capturing);
   const showBanner = !granted && !cameraBannerDismissed; // Dismiss always wins
-  const cause = granted ? '' : state === 'denied' ? 'Chrome reports the camera as blocked for this extension.'
+  const cause = granted ? '' : state === 'denied' ? `${BROWSER} reports the camera as blocked for this extension.`
     : refused ? `The capture page was refused the camera (${cameraError.name}: ${cameraError.message}, at ${new Date(cameraError.ts).toLocaleTimeString()}).`
-    : `Chrome reports permission "${state}" and no grant has been recorded yet.`;
+    : `${BROWSER} reports permission "${state}" and no grant has been recorded yet.`;
   return { state, granted, refused, capturing, showBanner, cause, cameraGranted, cameraError, cameraBannerDismissed, lastFrame, modelInfo };
 }
 
@@ -31,7 +38,7 @@ export function diagLine(s) {
     `captureError=${s.cameraError ? `${s.cameraError.name}: ${s.cameraError.message} @ ${new Date(s.cameraError.ts).toLocaleTimeString()}` : 'none'}`,
     `lastFrame=${s.lastFrame ? `${new Date(s.lastFrame.ts).toLocaleTimeString()} face=${s.lastFrame.faceFound}` : 'none'}`,
     `dismissed=${!!s.cameraBannerDismissed}`,
-    `ua=${navigator.userAgent.match(/Chrome\/[\d.]+/)?.[0] || '?'}`,
+    `ua=${navigator.userAgent.match(/(Chrome|Firefox)\/[\d.]+/)?.[0] || '?'}`,
   ].join(' · ');
 }
 
@@ -50,8 +57,8 @@ export async function requestCamera({ timeoutMs = 20000 } = {}) {
   } catch (e) {
     const name = e?.name || 'Error';
     const hints = {
-      NotAllowedError: 'Chrome blocked the camera for this extension, or the prompt was dismissed. Open chrome://settings/content/camera and remove this extension from the "Not allowed" list. On macOS also check System Settings → Privacy & Security → Camera → Google Chrome.',
-      TimeoutError: 'Chrome never answered. On macOS this usually means Chrome itself has no camera permission: System Settings → Privacy & Security → Camera → enable Google Chrome, then restart Chrome.',
+      NotAllowedError: IS_FIREFOX ? `Firefox blocked the camera for this extension, or the prompt was dismissed. ${CAMERA_UNBLOCK_HINT} On macOS also check System Settings → Privacy & Security → Camera → Firefox (or Zen).` : 'Chrome blocked the camera for this extension, or the prompt was dismissed. Open chrome://settings/content/camera and remove this extension from the "Not allowed" list. On macOS also check System Settings → Privacy & Security → Camera → Google Chrome.',
+      TimeoutError: IS_FIREFOX ? 'Firefox never answered. Look for the camera prompt in the address bar. On macOS the browser itself may lack camera permission: System Settings → Privacy & Security → Camera → enable Firefox (or Zen), then restart it.' : 'Chrome never answered. On macOS this usually means Chrome itself has no camera permission: System Settings → Privacy & Security → Camera → enable Google Chrome, then restart Chrome.',
       NotFoundError: 'No camera device was found.',
       NotReadableError: 'Another app is using the camera (Zoom, FaceTime, Photo Booth…). Close it and try again.',
       OverconstrainedError: 'The camera does not support the requested settings.',
