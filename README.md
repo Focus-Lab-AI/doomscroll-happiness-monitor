@@ -50,10 +50,12 @@ is running, and closes it when the session ends. Everything else is the same cod
    `dist/doomscroll-happiness-monitor-firefox.xpi` with a Firefox (MV2) manifest generated from `manifest.json`.
 2. Quick try: open `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** → pick
    `dist/firefox/manifest.json`. Temporary add-ons are removed (with their data) when the browser quits.
-3. To keep it installed, the `.xpi` must be signed by Mozilla (free, automated, unlisted on AMO:
-   `npx web-ext sign --channel=unlisted --source-dir dist/firefox` with AMO API keys), then open the signed
-   `.xpi` in Firefox / Zen. Builds that allow unsigned add-ons (Developer Edition, Nightly, ESR with
-   `xpinstall.signatures.required` = false) can install the unsigned `.xpi` directly.
+3. To keep it installed in **Zen**: open `about:config`, set `xpinstall.signatures.required` to `false`,
+   then `about:addons` → gear menu → **Install Add-on From File…** → pick the `.xpi`. Zen is built with
+   `MOZ_REQUIRE_SIGNING` unset (`configs/common/mozconfig` in zen-browser/desktop), so it honors that pref.
+   Firefox Developer Edition, Nightly and ESR do too. Regular Firefox release ignores it and needs a
+   Mozilla-signed `.xpi` (free, unlisted on AMO: `npx web-ext sign --channel=unlisted --source-dir dist/firefox`
+   with AMO API keys).
 4. Click the toolbar icon → **Settings** → **Allow camera** and tick **Remember this decision** in the prompt,
    so the capture window can use the camera later without asking.
 
