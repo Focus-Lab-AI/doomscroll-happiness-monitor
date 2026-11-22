@@ -86,6 +86,14 @@
       <button id="exportBtn">Export JSON (scores, no images)</button>
       <button id="deleteAllBtn" class="danger">Delete everything</button>
     </div>
+    <h3>Move to another browser</h3>
+    <p class="muted">A full backup holds every session, frame, webcam thumbnail and screenshot in one file. Import it in the other browser's copy of this extension; sessions already there are kept and not duplicated.</p>
+    <div class="row">
+      <button id="backupBtn">Export full backup</button>
+      <button id="importBtn">Import backup…</button>
+      <input type="file" id="importFile" accept=".dhmbak" hidden>
+    </div>
+    <div class="row"><span id="backupStatus" class="muted"></span></div>
   </section>
 
   <footer class="muted" id="footer"></footer>

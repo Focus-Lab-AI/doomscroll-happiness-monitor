@@ -68,7 +68,7 @@ Its own page (`src/settings/settings.html`, also the extension's options page):
 
 - **Tracked sites**: chips for every tracked domain with remove buttons, an add box, and reset to defaults. Changes save immediately. The popup also has a one-click **Track this site / Stop tracking** button for the current tab.
 - **Camera**: status, Allow camera, Test detection (live preview with the model running), and a `diag:` line with the raw permission state, grant flag, last capture error and last frame time for troubleshooting.
-- **Capture**: frame interval, model toggles (HSEmotion, face signals) and which source the mood line uses, grace period, idle threshold, thumbnails on/off and size, camera permission, export to JSON (without thumbnails), delete a day or everything.
+- **Capture**: frame interval, model toggles (HSEmotion, face signals) and which source the mood line uses, grace period, idle threshold, thumbnails on/off and size, camera permission, export to JSON (without thumbnails), **full backup / import** (one `.dhmbak` file with every session, frame, thumbnail and screenshot, for moving to another browser or profile; importing merges and never duplicates sessions), delete a day or everything.
 
 Sites added to the list get the activity counter registered automatically.
 
