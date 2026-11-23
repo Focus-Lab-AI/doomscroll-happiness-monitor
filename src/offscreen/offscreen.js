@@ -20,10 +20,12 @@ const send = (msg) => chrome.runtime.sendMessage({ ...msg, target: 'background' 
 
 // Firefox hosts this page in a window. Firefox only grants the camera to a visible page, so a
 // minimized window asks the background to show it again before starting the camera.
-function becomeVisible() {
-  if (!document.hidden) return Promise.resolve();
+async function becomeVisible() {
+  const camera = await navigator.permissions.query({ name: 'camera' }).then((p) => p.state, () => 'granted');
+  if (camera === 'prompt') { send({ type: 'capture-need-visible' }); return; }
+  if (!document.hidden) return;
   send({ type: 'capture-need-visible' });
-  return new Promise((resolve) => {
+  await new Promise((resolve) => {
     const done = () => { document.removeEventListener('visibilitychange', done); clearTimeout(t); resolve(); };
     const t = setTimeout(done, 5000);
     document.addEventListener('visibilitychange', done);

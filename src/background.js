@@ -281,7 +281,9 @@ async function ensureOffscreen() {
 async function openCaptureWindow() {
   const ready = new Promise((resolve) => { captureHostReady = resolve; });
   await rememberFocusedWindow();
-  const win = await chrome.windows.create({ url: chrome.runtime.getURL(OFFSCREEN_URL), type: 'popup', width: 380, height: 260, focused: false });
+  // The camera prompt shows inside this window; on macOS an unfocused window opens behind the browser and the prompt is never seen.
+  const camera = await navigator.permissions.query({ name: 'camera' }).then((p) => p.state, () => 'prompt');
+  const win = await chrome.windows.create({ url: chrome.runtime.getURL(OFFSCREEN_URL), type: 'popup', width: 380, height: 260, focused: camera !== 'granted' });
   captureWindowId = win.id;
   await Promise.race([ready, new Promise((r) => setTimeout(r, 10000))]);
   captureHostReady = null;
