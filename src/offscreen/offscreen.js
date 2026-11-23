@@ -16,13 +16,20 @@ const state = {
   modelsReady: null, backend: null, busy: false, hseReady: false,
 };
 
+const statusLine = document.getElementById('status');
+const setStatus = (text) => { if (statusLine) statusLine.textContent = text; };
+
 const send = (msg) => chrome.runtime.sendMessage({ ...msg, target: 'background' }).catch(() => {});
 
 // Firefox hosts this page in a window. Firefox only grants the camera to a visible page, so a
 // minimized window asks the background to show it again before starting the camera.
 async function becomeVisible() {
   const camera = await navigator.permissions.query({ name: 'camera' }).then((p) => p.state, () => 'granted');
-  if (camera === 'prompt') { send({ type: 'capture-need-visible' }); return; }
+  if (camera === 'prompt') {
+    setStatus('Click Allow in the camera prompt to start. On macOS it opens just below this window.');
+    send({ type: 'capture-need-visible' });
+    return;
+  }
   if (!document.hidden) return;
   send({ type: 'capture-need-visible' });
   await new Promise((resolve) => {
@@ -127,9 +134,11 @@ async function startCapture(msg) {
     });
   } catch (e) {
     console.error('[dhm] capture failed', e);
+    setStatus(`The camera didn't start (${e?.name || 'Error'}: ${e?.message || e}). Check that this browser is allowed to use the camera in your system's privacy settings.`);
     send({ type: 'capture-error', name: e?.name || 'Error', message: e?.message || String(e) });
     return;
   }
+  setStatus('');
   video.srcObject = state.stream;
   await new Promise((resolve) => { if (video.readyState >= 2) resolve(); else video.onloadedmetadata = () => resolve(); });
   await video.play().catch(() => {});
