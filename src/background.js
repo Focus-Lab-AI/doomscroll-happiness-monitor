@@ -182,10 +182,17 @@ async function _evaluate(reason) {
   await updateBadge(state, tracked);
 }
 
+// Answering the camera prompt focuses Firefox's capture window; the user is still on the tracked tab.
+async function captureWindowFocused() {
+  if (captureWindowId == null) return false;
+  const win = await chrome.windows.get(captureWindowId).catch(() => null);
+  return !!win?.focused;
+}
+
 async function getFocusedActiveTab() {
   try {
     const win = await chrome.windows.getLastFocused({ windowTypes: ['normal'] });
-    if (!win || !win.focused) return null;
+    if (!win || (!win.focused && !(await captureWindowFocused()))) return null;
     const [tab] = await chrome.tabs.query({ active: true, windowId: win.id });
     return tab || null;
   } catch {
@@ -254,8 +261,8 @@ async function rememberFocusedWindow() {
 }
 // Minimizes the capture window and gives focus back to the browser window the user was in.
 async function hideCaptureWindow(windowId) {
-  await chrome.windows.update(windowId, { state: 'minimized' }).catch(() => {});
   if (refocusWindowId != null) await chrome.windows.update(refocusWindowId, { focused: true }).catch(() => {});
+  await chrome.windows.update(windowId, { state: 'minimized' }).catch(() => {});
   refocusWindowId = null;
 }
 async function hasOffscreen() {
@@ -281,7 +288,9 @@ async function ensureOffscreen() {
 async function openCaptureWindow() {
   const ready = new Promise((resolve) => { captureHostReady = resolve; });
   await rememberFocusedWindow();
-  const win = await chrome.windows.create({ url: chrome.runtime.getURL(OFFSCREEN_URL), type: 'popup', width: 380, height: 260, focused: false });
+  // The camera prompt shows inside this window; on macOS an unfocused window opens behind the browser and the prompt is never seen.
+  const camera = await navigator.permissions.query({ name: 'camera' }).then((p) => p.state, () => 'prompt');
+  const win = await chrome.windows.create({ url: chrome.runtime.getURL(OFFSCREEN_URL), type: 'popup', width: 380, height: 260, focused: camera !== 'granted' });
   captureWindowId = win.id;
   await Promise.race([ready, new Promise((r) => setTimeout(r, 10000))]);
   captureHostReady = null;

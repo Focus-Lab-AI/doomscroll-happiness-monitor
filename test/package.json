@@ -8,7 +8,7 @@
     "settings": "node settings.mjs",
     "backup": "node backup.mjs",
     "insights": "node insights.mjs && node unit-insights.mjs",
-    "e2e:firefox": "node e2e-firefox.mjs"
+    "e2e:firefox": "node e2e-firefox.mjs && node e2e-firefox-prompt.mjs"
   },
   "devDependencies": {
     "puppeteer": "^24"
