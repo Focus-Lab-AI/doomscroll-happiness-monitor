@@ -13,7 +13,7 @@ const thumbCtx = thumbCanvas.getContext('2d');
 
 const state = {
   capturing: false, active: true, sessionId: null, opts: {}, stream: null, timer: null,
-  modelsReady: null, backend: null, busy: false, hseReady: false,
+  modelsReady: null, backend: null, busy: false, hseReady: false, gen: 0,
 };
 
 const statusLine = document.getElementById('status');
@@ -56,14 +56,18 @@ async function handle(msg) {
       }
       if (state.starting && state.startingFor === msg.sessionId) {
         state.opts = { ...state.opts, ...msg };
-        await state.starting;
         state.active = msg.active !== false;
-        return { capturing: state.capturing };
+        return { capturing: false, starting: true };
       }
-      state.startingFor = msg.sessionId;
-      state.starting = startCapture(msg).finally(() => { state.starting = null; state.startingFor = null; });
-      await state.starting;
-      return { capturing: state.capturing };
+      {
+        const starting = startCapture(msg).finally(() => {
+          if (state.starting === starting) { state.starting = null; state.startingFor = null; }
+        });
+        state.starting = starting;
+        state.startingFor = msg.sessionId;
+      }
+      // Don't wait for the camera: an unanswered permission prompt would block the background indefinitely.
+      return { capturing: false, starting: true };
     case 'set-active':
       state.active = !!msg.active;
       return;
@@ -122,17 +126,24 @@ function detect(input) {
 
 async function startCapture(msg) {
   await stopCapture();
+  const gen = state.gen;
+  const stale = () => gen !== state.gen;
   state.sessionId = msg.sessionId;
   state.opts = msg;
   state.active = msg.active !== false;
   try {
     await loadModels();
+    if (stale()) return;
     await becomeVisible();
-    state.stream = await navigator.mediaDevices.getUserMedia({
+    if (stale()) return;
+    const stream = await navigator.mediaDevices.getUserMedia({
       video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
       audio: false,
     });
+    if (stale()) { for (const t of stream.getTracks()) t.stop(); return; }
+    state.stream = stream;
   } catch (e) {
+    if (stale()) return;
     console.error('[dhm] capture failed', e);
     setStatus(`The camera didn't start (${e?.name || 'Error'}: ${e?.message || e}). Check that this browser is allowed to use the camera in your system's privacy settings.`);
     send({ type: 'capture-error', name: e?.name || 'Error', message: e?.message || String(e) });
@@ -142,6 +153,7 @@ async function startCapture(msg) {
   video.srcObject = state.stream;
   await new Promise((resolve) => { if (video.readyState >= 2) resolve(); else video.onloadedmetadata = () => resolve(); });
   await video.play().catch(() => {});
+  if (stale()) return;
   state.capturing = true;
   send({ type: 'capture-started', sessionId: state.sessionId });
   if (state.opts.signals) startSignals(video, 10).catch((e) => send({ type: 'model-error', model: 'signals', message: String(e?.message || e) }));
@@ -149,6 +161,7 @@ async function startCapture(msg) {
 }
 
 async function stopCapture() {
+  state.gen++;
   state.capturing = false;
   stopSignals();
   if (state.timer) { clearTimeout(state.timer); state.timer = null; }
